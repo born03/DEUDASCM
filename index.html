@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SplitApp - Control de Deudas</title>
+    <title>SplitApp - Control con Comprobantes</title>
     <style>
         :root {
             --primary: #4f46e5;
@@ -223,7 +223,6 @@
             font-size: 0.9rem;
         }
 
-        /* Modales flotantes para esconder ajustes e identidad */
         .modal-overlay {
             position: fixed;
             top: 0;
@@ -251,7 +250,7 @@
 </head>
 <body>
 
-<!-- Modal Inicial / Cambio de Identidad -->
+<!-- Modal Selección Identidad -->
 <div id="modal-identidad" class="modal-overlay">
     <div class="modal-card">
         <h3>👋 ¿Quién eres?</h3>
@@ -261,18 +260,29 @@
     </div>
 </div>
 
-<!-- Modal Oculto para Gestionar Integrantes (Configuración ⚙️) -->
+<!-- Modal Gestión Integrantes (⚙️) -->
 <div id="modal-integrantes" class="modal-overlay">
     <div class="modal-card">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <h3 style="margin:0; color:var(--primary);">👥 Integrantes</h3>
             <button onclick="cerrarModalIntegrantes()" style="background:none; border:none; font-size: 1.2rem; cursor:pointer; width:auto; padding:0;">✕</button>
         </div>
-        <p style="font-size: 0.85rem; color: #6b7280; text-align: left;">Añade a las personas que participan:</p>
+        <p style="font-size: 0.85rem; color: #6b7280; text-align: left;">Añade a las personas:</p>
         <input type="text" id="nombreAmigo" placeholder="Nombre de la persona">
         <button class="action-btn" onclick="agregarAmigo()">Añadir Integrante</button>
         <p style="font-size: 0.85rem; color: #4b5563; text-align: left; margin-top: 10px;"><strong>Registrados:</strong> <span id="listaAmigosTexto">Ninguno</span></p>
         <button onclick="cerrarModalIntegrantes()" style="background: #e5e7eb; color: #374151; margin-top: 10px;">Cerrar</button>
+    </div>
+</div>
+
+<!-- Modal Subir Comprobante (Captura) -->
+<div id="modal-comprobante" class="modal-overlay">
+    <div class="modal-card">
+        <h3 style="color: var(--primary);">📸 Subir Comprobante</h3>
+        <p style="font-size: 0.85rem; color: #6b7280;">Como no fuiste quien pagó el gasto original, adjunta la captura de pantalla de tu transferencia:</p>
+        <input type="file" id="inputComprobanteFile" accept="image/*" style="margin-bottom: 15px;">
+        <button class="action-btn" onclick="enviarComprobante()">Enviar Comprobante</button>
+        <button onclick="document.getElementById('modal-comprobante').style.display='none'" style="background: #e5e7eb; color: #374151; margin-top: 5px;">Cancelar</button>
     </div>
 </div>
 
@@ -363,6 +373,10 @@
     let amigos = [];
     let gastos = [];
     let usuarioActual = localStorage.getItem('splitapp_user_compartido') || '';
+    
+    // Variables temporales para la captura de pago
+    let gastoIdPendiente = '';
+    let participantePendiente = '';
 
     const hoyFormato = new Date().toISOString().split('T')[0];
     document.getElementById('fechaGasto').value = hoyFormato;
@@ -451,7 +465,7 @@
             alert("¡Integrante agregado!");
         } catch (error) {
             console.error("Error:", error);
-            alert("No se pudo guardar. Revisa tus reglas de Firestore.");
+            alert("No se pudo guardar.");
         }
     }
 
@@ -473,6 +487,7 @@
         }
 
         let estadosPagos = {};
+        let comprobantes = {};
         seleccionados.forEach(p => {
             estadosPagos[p] = (p === pagador);
         });
@@ -484,28 +499,64 @@
                 monto,
                 pagador,
                 participantes: seleccionados,
-                estadosPagos
+                estadosPagos,
+                comprobantes
             });
 
             document.getElementById('conceptoGasto').value = '';
             document.getElementById('montoGasto').value = '';
             alert("¡Gasto guardado con éxito!");
-            document.querySelectorAll('.nav-btn')[0].click(); // Ir a General
+            document.querySelectorAll('.nav-btn')[0].click();
         } catch (error) {
             console.error("Error:", error);
-            alert("Error al guardar el gasto en Firebase.");
+            alert("Error al guardar el gasto.");
         }
     }
 
-    window.toggleEstadoPago = async function(gastoId, participante, estadoActual) {
-        try {
-            const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
-            await updateDoc(gastoRef, {
-                [`estadosPagos.${participante}`]: !estadoActual
-            });
-        } catch (error) {
-            console.error("Error:", error);
-            alert("No tienes permisos para actualizar este registro.");
+    window.manejarClickPago = async function(gastoId, participante, pagadorOriginal, estadoActual) {
+        // Si el usuario actual es el que pagó originalmente O ya estaba marcado como pagado, se invierte directo
+        if (usuarioActual === pagadorOriginal || estadoActual) {
+            try {
+                const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
+                await updateDoc(gastoRef, {
+                    [`estadosPagos.${participante}`]: !estadoActual,
+                    [`comprobantes.${participante}`]: !estadoActual ? (gastroComprobanteTemporal || '') : ''
+                });
+            } catch (error) {
+                alert("Error al actualizar el estado de pago.");
+            }
+        } else {
+            // Si es un deudor intentando marcar que ya pagó, le exigimos la captura de pantalla
+            gastoIdPendiente = gastoId;
+            participantePendiente = participante;
+            document.getElementById('inputComprobanteFile').value = '';
+            document.getElementById('modal-comprobante').style.display = 'flex';
+        }
+    }
+
+    let gastroComprobanteTemporal = '';
+
+    window.enviarComprobante = async function() {
+        const fileInput = document.getElementById('inputComprobanteFile');
+        if (fileInput.files && fileInput.files[0]) {
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                let base64Image = e.target.result;
+                try {
+                    const gastoRef = doc(db, COLECCION_GASTOS, gastoIdPendiente);
+                    await updateDoc(gastoRef, {
+                        [`estadosPagos.${participantePendiente}`]: true,
+                        [`comprobantes.${participantePendiente}`]: base64Image
+                    });
+                    document.getElementById('modal-comprobante').style.display = 'none';
+                    alert("¡Comprobante enviado y registrado con éxito!");
+                } catch (err) {
+                    alert("Error al guardar el comprobante.");
+                }
+            };
+            reader.readAsDataURL(fileInput.files[0]);
+        } else {
+            alert("Por favor selecciona una captura de pantalla.");
         }
     }
 
@@ -513,12 +564,9 @@
         onSnapshot(collection(db, COLECCION_AMIGOS), (snapshot) => {
             amigos = [];
             snapshot.forEach(doc => amigos.push(doc.data().nombre));
-            
             document.getElementById('listaAmigosTexto').innerText = amigos.length > 0 ? amigos.join(', ') : 'Ninguno';
             actualizarSelectores();
             verificarIdentidadAlCargar();
-        }, (error) => {
-            console.error("Error leyendo amigos:", error);
         });
 
         onSnapshot(collection(db, COLECCION_GASTOS), (snapshot) => {
@@ -528,8 +576,6 @@
             });
             renderizarVistaDia();
             calcularBalancesGeneral();
-        }, (error) => {
-            console.error("Error leyendo gastos:", error);
         });
     }
 
@@ -576,12 +622,14 @@
 
             g.participantes.forEach(p => {
                 let pagado = g.estadosPagos && g.estadosPagos[p];
-                let puedeCambiar = (usuarioActual === g.pagador || usuarioActual === p);
+                let comprobante = g.comprobantes && g.comprobantes[p];
+                
+                let linkComprobante = comprobante ? `<a href="${comprobante}" target="_blank" style="font-size: 0.75rem; margin-left: 5px; color: var(--primary);">Ver Cap 👁️</a>` : '';
 
                 htmlParticipantes += `
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.85rem;">
-                        <span>${p} ($${costoPorPersona.toFixed(2)})</span>
-                        <button ${!puedeCambiar ? 'disabled' : ''} onclick="toggleEstadoPago('${g.id}', '${p}', ${pagado})" 
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 0.85rem;">
+                        <span>${p} ($${costoPorPersona.toFixed(2)}) ${linkComprobante}</span>
+                        <button onclick="manejarClickPago('${g.id}', '${p}', '${g.pagador}', ${pagado})" 
                             class="status-badge ${pagado ? 'status-paid' : 'status-pending'}">
                             ${pagado ? 'Pagado ✓' : 'Pendiente ⏳'}
                         </button>
