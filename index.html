@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SplitApp - Control de Deudas</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --success: #10b981;
+            --danger: #ef4444;
+            --bg: #f3f4f6;
+            --card-bg: #ffffff;
+            --text: #1f2937;
+            --border: #e5e7eb;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 10px;
+            padding-bottom: 70px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .mobile-container {
+            width: 100%;
+            max-width: 480px;
+            background: var(--card-bg);
+            border-radius: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            padding: 16px;
+            box-sizing: border-box;
+            margin-bottom: 20px;
+        }
+
+        .header-flex {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        h1 {
+            color: var(--primary);
+            font-size: 1.3rem;
+            margin: 0;
+        }
+
+        h2 {
+            font-size: 1.05rem;
+            text-align: left;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 5px;
+            margin-top: 15px;
+            color: var(--primary);
+        }
+
+        .config-icon-btn {
+            background: #e0e7ff;
+            color: var(--primary);
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .view-section {
+            display: none;
+        }
+        .view-section.active {
+            display: block;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background: #ffffff;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            z-index: 1000;
+        }
+
+        .nav-btn {
+            background: none;
+            border: none;
+            color: #6b7280;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            width: auto;
+            margin: 0;
+            padding: 0;
+        }
+
+        .nav-btn.active {
+            color: var(--primary);
+        }
+
+        .nav-btn span {
+            font-size: 1.2rem;
+        }
+
+        input, select, button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 6px;
+            margin-bottom: 10px;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-sizing: border-box;
+            font-size: 1rem;
+            background: #fff;
+        }
+
+        button.action-btn {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        button.action-btn:active {
+            background-color: var(--primary-hover);
+        }
+
+        .checkbox-group {
+            max-height: 140px;
+            overflow-y: auto;
+            border: 1px solid var(--border);
+            padding: 10px;
+            border-radius: 10px;
+            background: #fafafa;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+            font-size: 0.95rem;
+        }
+
+        .checkbox-item input {
+            width: auto;
+            margin: 0;
+        }
+
+        .expense-card {
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 8px;
+            font-size: 0.9rem;
+        }
+
+        .expense-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+        }
+
+        .status-paid { background: #d1fae5; color: #065f46; }
+        .status-pending { background: #fee2e2; color: #991b1b; }
+
+        .settlement-item {
+            background: #eef2ff;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            border-left: 4px solid var(--primary);
+            font-size: 0.9rem;
+        }
+
+        .user-selector-bar {
+            background: #e0e7ff;
+            padding: 8px 12px;
+            border-radius: 10px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.85rem;
+        }
+
+        .summary-box {
+            background: #f8fafc;
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        /* Modales flotantes para esconder ajustes e identidad */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .modal-card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            width: 90%;
+            max-width: 380px;
+            box-sizing: border-box;
+            text-align: center;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Modal Inicial / Cambio de Identidad -->
+<div id="modal-identidad" class="modal-overlay">
+    <div class="modal-card">
+        <h3>👋 ¿Quién eres?</h3>
+        <p style="font-size: 0.85rem; color: #6b7280;">Selecciona tu nombre de la lista:</p>
+        <select id="selectIdentidadModal" style="margin-bottom: 15px;"></select>
+        <button class="action-btn" onclick="guardarIdentidadSeleccionada()">Entrar</button>
+    </div>
+</div>
+
+<!-- Modal Oculto para Gestionar Integrantes (Configuración ⚙️) -->
+<div id="modal-integrantes" class="modal-overlay">
+    <div class="modal-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3 style="margin:0; color:var(--primary);">👥 Integrantes</h3>
+            <button onclick="cerrarModalIntegrantes()" style="background:none; border:none; font-size: 1.2rem; cursor:pointer; width:auto; padding:0;">✕</button>
+        </div>
+        <p style="font-size: 0.85rem; color: #6b7280; text-align: left;">Añade a las personas que participan:</p>
+        <input type="text" id="nombreAmigo" placeholder="Nombre de la persona">
+        <button class="action-btn" onclick="agregarAmigo()">Añadir Integrante</button>
+        <p style="font-size: 0.85rem; color: #4b5563; text-align: left; margin-top: 10px;"><strong>Registrados:</strong> <span id="listaAmigosTexto">Ninguno</span></p>
+        <button onclick="cerrarModalIntegrantes()" style="background: #e5e7eb; color: #374151; margin-top: 10px;">Cerrar</button>
+    </div>
+</div>
+
+<div class="mobile-container">
+    <div class="header-flex">
+        <h1>💸 SplitApp</h1>
+        <button class="config-icon-btn" onclick="abrirModalIntegrantes()" title="Gestionar Integrantes">⚙️</button>
+    </div>
+
+    <!-- Barra de Usuario Activo -->
+    <div class="user-selector-bar">
+        <span>👤 Usuario: <strong id="currentUserName">...</strong></span>
+        <button onclick="abrirSelectorIdentidad()" style="width: auto; padding: 4px 8px; margin: 0; font-size: 0.75rem;">Cambiar</button>
+    </div>
+
+    <!-- ================= PANTALLA 1: GENERAL ================= -->
+    <div id="vista-general" class="view-section active">
+        <h2>Vaciado General (Global)</h2>
+        <div id="resultadosBalanceGeneral">
+            <p style="font-size: 0.85rem; color: gray; text-align: center;">Cargando datos generales...</p>
+        </div>
+    </div>
+
+    <!-- ================= PANTALLA 2: VISTA POR DÍA ================= -->
+    <div id="vista-dias" class="view-section">
+        <h2>Desglose por Día</h2>
+        <label style="font-size: 0.85rem; color: #6b7280;">Selecciona el día:</label>
+        <input type="date" id="filtroFecha" onchange="renderizarVistaDia()">
+        
+        <div id="detalleDiaContainer">
+            <p style="text-align: center; color: gray; margin-top: 15px;">Selecciona una fecha.</p>
+        </div>
+    </div>
+
+    <!-- ================= PANTALLA 3: NUEVO GASTO ================= -->
+    <div id="vista-agregar" class="view-section">
+        <h2>Registrar Gasto</h2>
+        <input type="date" id="fechaGasto">
+        <input type="text" id="conceptoGasto" placeholder="Concepto (Ej. Cena, Uber)">
+        <input type="number" id="montoGasto" placeholder="Monto total ($)" step="0.01">
+        
+        <label style="font-size: 0.85rem; color: #6b7280;">¿Quién pagó?</label>
+        <select id="quienPago"></select>
+
+        <label style="font-size: 0.85rem; color: #6b7280;">¿Entre quiénes se divide?</label>
+        <div class="checkbox-group" id="dividenCheckboxes">
+            <span style="color: gray;">Añade integrantes en el botón ⚙️ arriba...</span>
+        </div>
+
+        <button class="action-btn" onclick="registrarGasto()">Guardar Gasto</button>
+    </div>
+</div>
+
+<!-- Navegación Inferior -->
+<div class="bottom-nav">
+    <button class="nav-btn active" onclick="cambiarVista('general', this)">
+        <span>🏠</span> General
+    </button>
+    <button class="nav-btn" onclick="cambiarVista('dias', this)">
+        <span>📅</span> Por Día
+    </button>
+    <button class="nav-btn" onclick="cambiarVista('agregar', this)">
+        <span>➕</span> Nuevo Gasto
+    </button>
+</div>
+
+<!-- Script de Firebase Firestore -->
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getFirestore, collection, addDoc, doc, updateDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+        apiKey: "AIzaSyASVOYbd8e3fF3wYxU6shRrgBbLqqYqOg4",
+        authDomain: "loter-acc07.firebaseapp.com",
+        databaseURL: "https://loter-acc07-default-rtdb.firebaseio.com",
+        projectId: "loter-acc07",
+        storageBucket: "loter-acc07.firebasestorage.app",
+        messagingSenderId: "655655324938",
+        appId: "1:655655324938:web:62c554f868e6a23942fef3"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const COLECCION_AMIGOS = "amigos_deudas";
+    const COLECCION_GASTOS = "gastos_deudas";
+
+    let amigos = [];
+    let gastos = [];
+    let usuarioActual = localStorage.getItem('splitapp_user_compartido') || '';
+
+    const hoyFormato = new Date().toISOString().split('T')[0];
+    document.getElementById('fechaGasto').value = hoyFormato;
+    document.getElementById('filtroFecha').value = hoyFormato;
+
+    window.cambiarVista = function(vistaId, btnElement) {
+        document.querySelectorAll('.view-section').forEach(sec => sec.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(btn => btn.classList.remove('active'));
+
+        document.getElementById('vista-' + vistaId).classList.add('active');
+        btnElement.classList.add('active');
+        if(vistaId === 'dias') {
+            renderizarVistaDia();
+        }
+    }
+
+    window.abrirModalIntegrantes = function() {
+        document.getElementById('modal-integrantes').style.display = 'flex';
+    }
+
+    window.cerrarModalIntegrantes = function() {
+        document.getElementById('modal-integrantes').style.display = 'none';
+    }
+
+    function verificarIdentidadAlCargar() {
+        if (amigos.length === 0) {
+            document.getElementById('currentUserName').innerText = 'Faltan integrantes (⚙️)';
+            return;
+        }
+
+        if (!usuarioActual || !amigos.includes(usuarioActual)) {
+            abrirSelectorIdentidad();
+        } else {
+            document.getElementById('currentUserName').innerText = usuarioActual;
+        }
+    }
+
+    window.abrirSelectorIdentidad = function() {
+        if (amigos.length === 0) {
+            alert("Primero añade integrantes haciendo clic en el engranaje ⚙️ arriba.");
+            abrirModalIntegrantes();
+            return;
+        }
+        const selectModal = document.getElementById('selectIdentidadModal');
+        selectModal.innerHTML = '';
+        amigos.forEach(a => {
+            let opt = document.createElement('option');
+            opt.value = a;
+            opt.textContent = a;
+            if(a === usuarioActual) opt.selected = true;
+            selectModal.appendChild(opt);
+        });
+        document.getElementById('modal-identidad').style.display = 'flex';
+    }
+
+    window.guardarIdentidadSeleccionada = function() {
+        const selectModal = document.getElementById('selectIdentidadModal');
+        const elegido = selectModal.value;
+        if (elegido) {
+            usuarioActual = elegido;
+            localStorage.setItem('splitapp_user_compartido', usuarioActual);
+            document.getElementById('currentUserName').innerText = usuarioActual;
+            document.getElementById('modal-identidad').style.display = 'none';
+        }
+    }
+
+    window.agregarAmigo = async function() {
+        const input = document.getElementById('nombreAmigo');
+        const nombre = input.value.trim();
+        if (!nombre) {
+            alert("Ingresa un nombre válido.");
+            return;
+        }
+        if (amigos.includes(nombre)) {
+            alert("Este integrante ya está registrado.");
+            return;
+        }
+        try {
+            await addDoc(collection(db, COLECCION_AMIGOS), { nombre });
+            input.value = '';
+            if (amigos.length === 0) {
+                usuarioActual = nombre;
+                localStorage.setItem('splitapp_user_compartido', usuarioActual);
+                document.getElementById('currentUserName').innerText = usuarioActual;
+            }
+            alert("¡Integrante agregado!");
+        } catch (error) {
+            console.error("Error:", error);
+            alert("No se pudo guardar. Revisa tus reglas de Firestore.");
+        }
+    }
+
+    window.registrarGasto = async function() {
+        const fecha = document.getElementById('fechaGasto').value;
+        const concepto = document.getElementById('conceptoGasto').value.trim();
+        const monto = parseFloat(document.getElementById('montoGasto').value);
+        const pagador = document.getElementById('quienPago').value;
+
+        const seleccionados = [];
+        amigos.forEach(amigo => {
+            const chk = document.getElementById(`chk_${amigo}`);
+            if (chk && chk.checked) seleccionados.push(amigo);
+        });
+
+        if (!fecha || !concepto || isNaN(monto) || monto <= 0 || seleccionados.length === 0) {
+            alert("Completa todos los campos correctamente.");
+            return;
+        }
+
+        let estadosPagos = {};
+        seleccionados.forEach(p => {
+            estadosPagos[p] = (p === pagador);
+        });
+
+        try {
+            await addDoc(collection(db, COLECCION_GASTOS), {
+                fecha,
+                concepto,
+                monto,
+                pagador,
+                participantes: seleccionados,
+                estadosPagos
+            });
+
+            document.getElementById('conceptoGasto').value = '';
+            document.getElementById('montoGasto').value = '';
+            alert("¡Gasto guardado con éxito!");
+            document.querySelectorAll('.nav-btn')[0].click(); // Ir a General
+        } catch (error) {
+            console.error("Error:", error);
+            alert("Error al guardar el gasto en Firebase.");
+        }
+    }
+
+    window.toggleEstadoPago = async function(gastoId, participante, estadoActual) {
+        try {
+            const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
+            await updateDoc(gastoRef, {
+                [`estadosPagos.${participante}`]: !estadoActual
+            });
+        } catch (error) {
+            console.error("Error:", error);
+            alert("No tienes permisos para actualizar este registro.");
+        }
+    }
+
+    function escucharBaseDeDatos() {
+        onSnapshot(collection(db, COLECCION_AMIGOS), (snapshot) => {
+            amigos = [];
+            snapshot.forEach(doc => amigos.push(doc.data().nombre));
+            
+            document.getElementById('listaAmigosTexto').innerText = amigos.length > 0 ? amigos.join(', ') : 'Ninguno';
+            actualizarSelectores();
+            verificarIdentidadAlCargar();
+        }, (error) => {
+            console.error("Error leyendo amigos:", error);
+        });
+
+        onSnapshot(collection(db, COLECCION_GASTOS), (snapshot) => {
+            gastos = [];
+            snapshot.forEach(doc => {
+                gastos.push({ id: doc.id, ...doc.data() });
+            });
+            renderizarVistaDia();
+            calcularBalancesGeneral();
+        }, (error) => {
+            console.error("Error leyendo gastos:", error);
+        });
+    }
+
+    function actualizarSelectores() {
+        const selectPago = document.getElementById('quienPago');
+        selectPago.innerHTML = '';
+        amigos.forEach(a => {
+            let opt = document.createElement('option');
+            opt.value = a; opt.textContent = a;
+            selectPago.appendChild(opt);
+        });
+
+        const contenedorCheck = document.getElementById('dividenCheckboxes');
+        contenedorCheck.innerHTML = amigos.length === 0 ? '<span style="color: gray;">Añade integrantes en el botón ⚙️ arriba...</span>' : '';
+        amigos.forEach(a => {
+            contenedorCheck.innerHTML += `
+                <div class="checkbox-item">
+                    <input type="checkbox" id="chk_${a}" value="${a}" checked>
+                    <label for="chk_${a}" style="cursor:pointer;">${a}</label>
+                </div>`;
+        });
+    }
+
+    window.renderizarVistaDia = function() {
+        const fechaSeleccionada = document.getElementById('filtroFecha').value;
+        const contenedor = document.getElementById('detalleDiaContainer');
+        if (!contenedor) return;
+        contenedor.innerHTML = '';
+
+        let gastosDelDia = gastos.filter(g => g.fecha === fechaSeleccionada);
+
+        if (gastosDelDia.length === 0) {
+            contenedor.innerHTML = `<p style="text-align: center; color: gray; margin-top: 15px;">No hay compras registradas para el día ${fechaSeleccionada}.</p>`;
+            return;
+        }
+
+        let totalDia = 0;
+        let htmlCompras = '';
+
+        gastosDelDia.forEach(g => {
+            totalDia += g.monto;
+            let costoPorPersona = g.monto / g.participantes.length;
+            let htmlParticipantes = '';
+
+            g.participantes.forEach(p => {
+                let pagado = g.estadosPagos && g.estadosPagos[p];
+                let puedeCambiar = (usuarioActual === g.pagador || usuarioActual === p);
+
+                htmlParticipantes += `
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.85rem;">
+                        <span>${p} ($${costoPorPersona.toFixed(2)})</span>
+                        <button ${!puedeCambiar ? 'disabled' : ''} onclick="toggleEstadoPago('${g.id}', '${p}', ${pagado})" 
+                            class="status-badge ${pagado ? 'status-paid' : 'status-pending'}">
+                            ${pagado ? 'Pagado ✓' : 'Pendiente ⏳'}
+                        </button>
+                    </div>`;
+            });
+
+            htmlCompras += `
+                <div class="expense-card">
+                    <div class="expense-header">
+                        <span>${g.concepto} ($${g.monto.toFixed(2)})</span>
+                        <span style="font-weight: normal; color: #4b5563;">Pagó: <strong>${g.pagador}</strong></span>
+                    </div>
+                    <div style="margin-top: 6px; border-top: 1px dashed var(--border); padding-top: 4px;">
+                        ${htmlParticipantes}
+                    </div>
+                </div>`;
+        });
+
+        contenedor.innerHTML = `
+            <div style="margin-top: 10px;">
+                <p style="font-weight: bold; font-size: 0.95rem; color: #374151;">💰 Gasto Total del Día: $${totalDia.toFixed(2)}</p>
+                ${htmlCompras}
+                <div class="summary-box">
+                    <strong>📋 Desglose de Deudas de este Día:</strong>
+                    <div id="vaciadoDiaInterno"></div>
+                </div>
+            </div>
+        `;
+
+        calcularBalancesEspecificos(gastosDelDia, 'vaciadoDiaInterno');
+    }
+
+    function calcularBalancesEspecificos(listaGastos, elementoId) {
+        const balances = {};
+        amigos.forEach(a => balances[a] = 0);
+
+        listaGastos.forEach(g => {
+            let costoPorPersona = g.monto / g.participantes.length;
+            g.participantes.forEach(p => {
+                let yaPago = g.estadosPagos && g.estadosPagos[p];
+                if (!yaPago && p !== g.pagador) {
+                    balances[p] -= costoPorPersona;
+                    balances[g.pagador] += costoPorPersona;
+                }
+            });
+        });
+
+        const deudores = [];
+        const acreedores = [];
+
+        for (let a in balances) {
+            if (balances[a] < -0.01) deudores.push({ nombre: a, saldo: -balances[a] });
+            else if (balances[a] > 0.01) acreedores.push({ nombre: a, saldo: balances[a] });
+        }
+
+        deudores.sort((a, b) => b.saldo - a.saldo);
+        acreedores.sort((a, b) => b.saldo - a.saldo);
+
+        const resultadosEl = document.getElementById(elementoId);
+        if (!resultadosEl) return;
+        resultadosEl.innerHTML = '';
+
+        let transacciones = [];
+        let i = 0, j = 0;
+
+        while (i < deudores.length && j < acreedores.length) {
+            let deudor = deudores[i];
+            let acreedor = acreedores[j];
+            let monto = Math.min(deudor.saldo, acreedor.saldo);
+
+            transacciones.push(`📍 <strong>${deudor.nombre}</strong> le debe pagar <strong>$${monto.toFixed(2)}</strong> a <strong>${acreedor.nombre}</strong>`);
+
+            deudor.saldo -= monto;
+            acreedor.saldo -= monto;
+
+            if (deudor.saldo < 0.01) i++;
+            if (acreedor.saldo < 0.01) j++;
+        }
+
+        if (transacciones.length === 0) {
+            resultadosEl.innerHTML = '<p style="font-size: 0.85rem; color: var(--success); margin-top: 5px;"><strong>¡Todo liquidado en esta fecha! 🎉</strong></p>';
+        } else {
+            transacciones.forEach(t => {
+                resultadosEl.innerHTML += `<div class="settlement-item" style="font-size: 0.85rem; margin-top: 6px;">${t}</div>`;
+            });
+        }
+    }
+
+    function calcularBalancesGeneral() {
+        const balances = {};
+        amigos.forEach(a => balances[a] = 0);
+
+        gastos.forEach(g => {
+            let costoPorPersona = g.monto / g.participantes.length;
+            g.participantes.forEach(p => {
+                let yaPago = g.estadosPagos && g.estadosPagos[p];
+                if (!yaPago && p !== g.pagador) {
+                    balances[p] -= costoPorPersona;
+                    balances[g.pagador] += costoPorPersona;
+                }
+            });
+        });
+
+        const deudores = [];
+        const acreedores = [];
+
+        for (let a in balances) {
+            if (balances[a] < -0.01) deudores.push({ nombre: a, saldo: -balances[a] });
+            else if (balances[a] > 0.01) acreedores.push({ nombre: a, saldo: balances[a] });
+        }
+
+        deudores.sort((a, b) => b.saldo - a.saldo);
+        acreedores.sort((a, b) => b.saldo - a.saldo);
+
+        const resultadosEl = document.getElementById('resultadosBalanceGeneral');
+        if (!resultadosEl) return;
+        resultadosEl.innerHTML = '';
+
+        let transacciones = [];
+        let i = 0, j = 0;
+
+        while (i < deudores.length && j < acreedores.length) {
+            let deudor = deudores[i];
+            let acreedor = acreedores[j];
+            let monto = Math.min(deudor.saldo, acreedor.saldo);
+
+            transacciones.push(`📍 <strong>${deudor.nombre}</strong> le debe pagar <strong>$${monto.toFixed(2)}</strong> a <strong>${acreedor.nombre}</strong>`);
+
+            deudor.saldo -= monto;
+            acreedor.saldo -= monto;
+
+            if (deudor.saldo < 0.01) i++;
+            if (acreedor.saldo < 0.01) j++;
+        }
+
+        if (transacciones.length === 0) {
+            resultadosEl.innerHTML = '<p style="font-size: 0.85rem; color: var(--success); text-align: center; margin-top: 20px;"><strong>¡Todo está liquidado a nivel general! 🎉</strong></p>';
+        } else {
+            transacciones.forEach(t => {
+                resultadosEl.innerHTML += `<div class="settlement-item">${t}</div>`;
+            });
+        }
+    }
+
+    escucharBaseDeDatos();
+</script>
+
+</body>
+</html>
