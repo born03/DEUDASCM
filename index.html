@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SplitApp - Control con Edición Transparente</title>
+    <title>SplitApp - Control con Resumen Financiero</title>
     <style>
         :root {
             --primary: #4f46e5;
@@ -193,6 +193,7 @@
 
         .status-paid { background: #d1fae5; color: #065f46; }
         .status-pending { background: #fee2e2; color: #991b1b; }
+        .status-locked { opacity: 0.7; cursor: not-allowed; }
 
         .edit-note {
             font-size: 0.75rem;
@@ -223,6 +224,25 @@
             align-items: center;
             font-size: 0.85rem;
         }
+
+        /* Tarjetas de Resumen Financiero Personal */
+        .financial-summary-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .financial-card {
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        .financial-card.me-deben { border-left: 4px solid var(--success); }
+        .financial-card.debo-yo { border-left: 4px solid var(--danger); }
+        .financial-title { font-size: 0.75rem; color: #6b7280; font-weight: bold; text-transform: uppercase; }
+        .financial-amount { font-size: 1.15rem; font-weight: bold; margin-top: 4px; }
 
         .summary-box {
             background: #f8fafc;
@@ -286,7 +306,7 @@
 <div id="modal-comprobante" class="modal-overlay">
     <div class="modal-card">
         <h3 style="color: var(--primary);">📸 Subir Comprobante</h3>
-        <p style="font-size: 0.85rem; color: #6b7280;">Adjunta la captura de tu transferencia:</p>
+        <p style="font-size: 0.85rem; color: #6b7280;">Para marcar tu deuda como pagada, adjunta la captura de tu transferencia:</p>
         <input type="file" id="inputComprobanteFile" accept="image/*" style="margin-bottom: 15px;">
         <button class="action-btn" onclick="enviarComprobante()">Enviar Comprobante</button>
         <button onclick="document.getElementById('modal-comprobante').style.display='none'" style="background: #e5e7eb; color: #374151; margin-top: 5px;">Cancelar</button>
@@ -321,6 +341,17 @@
     </div>
 
     <div id="vista-general" class="view-section active">
+        <div class="financial-summary-grid">
+            <div class="financial-card me-deben">
+                <div class="financial-title">Te deben en total</div>
+                <div class="financial-amount" id="totalMeDeben" style="color: var(--success);">$0.00</div>
+            </div>
+            <div class="financial-card debo-yo">
+                <div class="financial-title">Debes en total</div>
+                <div class="financial-amount" id="totalDeboYo" style="color: var(--danger);">$0.00</div>
+            </div>
+        </div>
+
         <h2>Vaciado General (Global)</h2>
         <div id="resultadosBalanceGeneral">
             <p style="font-size: 0.85rem; color: gray; text-align: center;">Cargando datos generales...</p>
@@ -427,6 +458,7 @@
             abrirSelectorIdentidad();
         } else {
             document.getElementById('currentUserName').innerText = usuarioActual;
+            calcularBalancesGeneral(); // Recalcular al cambiar identidad
         }
     }
 
@@ -456,6 +488,7 @@
             localStorage.setItem('splitapp_user_compartido', usuarioActual);
             document.getElementById('currentUserName').innerText = usuarioActual;
             document.getElementById('modal-identidad').style.display = 'none';
+            calcularBalancesGeneral();
         }
     }
 
@@ -530,7 +563,6 @@
         }
     }
 
-    // Funciones para Editar Gasto
     window.abrirModalEditar = function(gastoId, conceptoActual, montoActual) {
         document.getElementById('editGastoId').value = gastoId;
         document.getElementById('editConcepto').value = conceptoActual;
@@ -567,7 +599,7 @@
     }
 
     window.manejarClickPago = async function(gastoId, participante, pagadorOriginal, estadoActual) {
-        if (usuarioActual === pagadorOriginal || estadoActual) {
+        if (usuarioActual === pagadorOriginal) {
             try {
                 const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
                 await updateDoc(gastoRef, {
@@ -577,12 +609,30 @@
             } catch (error) {
                 alert("Error al actualizar el estado de pago.");
             }
-        } else {
-            gastoIdPendiente = gastoId;
-            participantePendiente = participante;
-            document.getElementById('inputComprobanteFile').value = '';
-            document.getElementById('modal-comprobante').style.display = 'flex';
+            return;
         }
+
+        if (usuarioActual === participante) {
+            if (estadoActual) {
+                try {
+                    const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
+                    await updateDoc(gastoRef, {
+                        [`estadosPagos.${participante}`]: false,
+                        [`comprobantes.${participante}`]: ''
+                    });
+                } catch (error) {
+                    alert("Error al actualizar tu estado de pago.");
+                }
+            } else {
+                gastoIdPendiente = gastoId;
+                participantePendiente = participante;
+                document.getElementById('inputComprobanteFile').value = '';
+                document.getElementById('modal-comprobante').style.display = 'flex';
+            }
+            return;
+        }
+
+        alert("⚠️ No tienes permisos para modificar el estado de pago de otra persona.");
     }
 
     function comprimirImagen(file, maxWidth = 500, quality = 0.6) {
@@ -705,20 +755,24 @@
                 
                 let linkComprobante = comprobante ? `<a href="${comprobante}" target="_blank" style="font-size: 0.75rem; margin-left: 5px; color: var(--primary);">Ver Cap 👁️</a>` : '';
 
+                let esSuDeuda = (usuarioActual === p);
+                let esElPagador = (usuarioActual === g.pagador);
+                let tienePermiso = esSuDeuda || esElPagador;
+                
+                let estiloBoton = tienePermiso ? '' : 'status-locked';
+                let tituloBoton = tienePermiso ? '' : ' title="Solo el deudor o quien pagó pueden modificar esto"';
+
                 htmlParticipantes += `
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 0.85rem;">
                         <span>${p} ($${costoPorPersona.toFixed(2)}) ${linkComprobante}</span>
                         <button onclick="manejarClickPago('${g.id}', '${p}', '${g.pagador}', ${pagado})" 
-                            class="status-badge ${pagado ? 'status-paid' : 'status-pending'}">
+                            class="status-badge ${pagado ? 'status-paid' : 'status-pending'} ${estiloBoton}"${tituloBoton}>
                             ${pagado ? 'Pagado ✓' : 'Pendiente ⏳'}
                         </button>
                     </div>`;
             });
 
-            // Botón de editar visible (cualquiera puede editar para corregir montos o notas)
             let btnEditar = `<button onclick="abrirModalEditar('${g.id}', '${g.concepto}', ${g.monto})" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:0.8rem; padding:0; width:auto; margin-left:8px;">✏️ Editar</button>`;
-            
-            // Nota de edición si existe
             let notaHtml = g.notaEdicion ? `<div class="edit-note">⚠️ ${g.notaEdicion}</div>` : '';
 
             htmlCompras += `
@@ -819,6 +873,10 @@
             });
         });
 
+        // Calcular cuánto le deben en total a usuarioActual y cuánto debe en total
+        let meDebenTotal = 0;
+        let deboYoTotal = 0;
+
         const deudores = [];
         const acreedores = [];
 
@@ -830,19 +888,18 @@
         deudores.sort((a, b) => b.saldo - a.saldo);
         acreedores.sort((a, b) => b.saldo - a.saldo);
 
-        const resultadosEl = document.getElementById('resultadosBalanceGeneral');
-        if (!resultadosEl) return;
-        resultadosEl.innerHTML = '';
-
+        // Algoritmo de transacciones óptimas para sacar las rutas de pago
+        let copiaDeudores = JSON.parse(JSON.stringify(deudores));
+        let copiaAcreedores = JSON.parse(JSON.stringify(acreedores));
         let transacciones = [];
         let i = 0, j = 0;
 
-        while (i < deudores.length && j < acreedores.length) {
-            let deudor = deudores[i];
-            let acreedor = acreedores[j];
+        while (i < copiaDeudores.length && j < copiaAcreedores.length) {
+            let deudor = copiaDeudores[i];
+            let acreedor = copiaAcreedores[j];
             let monto = Math.min(deudor.saldo, acreedor.saldo);
 
-            transacciones.push(`📍 <strong>${deudor.nombre}</strong> le debe pagar <strong>$${monto.toFixed(2)}</strong> a <strong>${acreedor.nombre}</strong>`);
+            transacciones.push({ deudor: deudor.nombre, acreedor: acreedor.nombre, monto });
 
             deudor.saldo -= monto;
             acreedor.saldo -= monto;
@@ -851,11 +908,25 @@
             if (acreedor.saldo < 0.01) j++;
         }
 
+        // Sumar lo que le deben al usuario actual y lo que él debe
+        transacciones.forEach(t => {
+            if (t.acreedor === usuarioActual) meDebenTotal += t.monto;
+            if (t.deudor === usuarioActual) deboYoTotal += t.monto;
+        });
+
+        // Actualizar tarjetas en pantalla
+        document.getElementById('totalMeDeben').innerText = `$${meDebenTotal.toFixed(2)}`;
+        document.getElementById('totalDeboYo').innerText = `$${deboYoTotal.toFixed(2)}`;
+
+        const resultadosEl = document.getElementById('resultadosBalanceGeneral');
+        if (!resultadosEl) return;
+        resultadosEl.innerHTML = '';
+
         if (transacciones.length === 0) {
             resultadosEl.innerHTML = '<p style="font-size: 0.85rem; color: var(--success); text-align: center; margin-top: 20px;"><strong>¡Todo está liquidado a nivel general! 🎉</strong></p>';
         } else {
             transacciones.forEach(t => {
-                resultadosEl.innerHTML += `<div class="settlement-item">${t}</div>`;
+                resultadosEl.innerHTML += `<div class="settlement-item">📍 <strong>${t.deudor}</strong> le debe pagar <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong></div>`;
             });
         }
     }
