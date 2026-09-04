@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SplitApp - Control con Resumen Financiero</title>
+    <title>SplitApp - Pagos Directos y Edición de Pagador</title>
     <style>
         :root {
             --primary: #4f46e5;
@@ -225,7 +225,6 @@
             font-size: 0.85rem;
         }
 
-        /* Tarjetas de Resumen Financiero Personal */
         .financial-summary-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -323,6 +322,9 @@
 
         <label style="font-size: 0.85rem; text-align: left; display: block; color: #6b7280;">Monto total ($):</label>
         <input type="number" id="editMonto" step="0.01">
+
+        <label style="font-size: 0.85rem; text-align: left; display: block; color: #6b7280;">¿Quién pagó originalmente?</label>
+        <select id="editQuienPago"></select>
 
         <button class="action-btn" onclick="guardarEdicionGasto()">Guardar Cambios</button>
         <button onclick="document.getElementById('modal-editar').style.display='none'" style="background: #e5e7eb; color: #374151; margin-top: 5px;">Cancelar</button>
@@ -458,7 +460,7 @@
             abrirSelectorIdentidad();
         } else {
             document.getElementById('currentUserName').innerText = usuarioActual;
-            calcularBalancesGeneral(); // Recalcular al cambiar identidad
+            calcularBalancesGeneral();
         }
     }
 
@@ -563,10 +565,22 @@
         }
     }
 
-    window.abrirModalEditar = function(gastoId, conceptoActual, montoActual) {
+    window.abrirModalEditar = function(gastoId, conceptoActual, montoActual, pagadorActual) {
         document.getElementById('editGastoId').value = gastoId;
         document.getElementById('editConcepto').value = conceptoActual;
         document.getElementById('editMonto').value = montoActual;
+
+        // Cargar opciones en el selector de pagador dentro del modal
+        const selectEditPagador = document.getElementById('editQuienPago');
+        selectEditPagador.innerHTML = '';
+        amigos.forEach(a => {
+            let opt = document.createElement('option');
+            opt.value = a;
+            opt.textContent = a;
+            if(a === pagadorActual) opt.selected = true;
+            selectEditPagador.appendChild(opt);
+        });
+
         document.getElementById('modal-editar').style.display = 'flex';
     }
 
@@ -574,6 +588,7 @@
         const gastoId = document.getElementById('editGastoId').value;
         const nuevoConcepto = document.getElementById('editConcepto').value.trim();
         const nuevoMonto = parseFloat(document.getElementById('editMonto').value);
+        const nuevoPagador = document.getElementById('editQuienPago').value;
 
         if (!nuevoConcepto || isNaN(nuevoMonto) || nuevoMonto <= 0) {
             alert("Ingresa un concepto y un monto válido.");
@@ -582,11 +597,14 @@
 
         try {
             const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
-            const nota = `Editado por ${usuarioActual}: cambiado a "${nuevoConcepto}" ($${nuevoMonto.toFixed(2)})`;
+            const nota = `Editado por ${usuarioActual}: concepto/monto/pagador actualizados.`;
 
+            // Si cambió el pagador, aseguramos que su propio estado de pago se mantenga en true
+            // y reiniciamos o adaptamos los estados si es necesario
             await updateDoc(gastoRef, {
                 concepto: nuevoConcepto,
                 monto: nuevoMonto,
+                pagador: nuevoPagador,
                 notaEdicion: nota
             });
 
@@ -772,7 +790,7 @@
                     </div>`;
             });
 
-            let btnEditar = `<button onclick="abrirModalEditar('${g.id}', '${g.concepto}', ${g.monto})" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:0.8rem; padding:0; width:auto; margin-left:8px;">✏️ Editar</button>`;
+            let btnEditar = `<button onclick="abrirModalEditar('${g.id}', '${g.concepto}', ${g.monto}, '${g.pagador}')" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:0.8rem; padding:0; width:auto; margin-left:8px;">✏️ Editar</button>`;
             let notaHtml = g.notaEdicion ? `<div class="edit-note">⚠️ ${g.notaEdicion}</div>` : '';
 
             htmlCompras += `
@@ -799,136 +817,70 @@
             </div>
         `;
 
-        calcularBalancesEspecificos(gastosDelDia, 'vaciadoDiaInterno');
+        calcularBalancesDirectos(gastosDelDia, 'vaciadoDiaInterno', false);
     }
 
-    function calcularBalancesEspecificos(listaGastos, elementoId) {
-        const balances = {};
-        amigos.forEach(a => balances[a] = 0);
+    function calcularBalancesDirectos(listaGastos, elementoId, esGlobal = false) {
+        // Estructura para acumular deudas directas: deudasDirectas[deudor][acreedor] = monto
+        const deudasDirectas = {};
+        amigos.forEach(a => {
+            deudasDirectas[a] = {};
+        });
 
         listaGastos.forEach(g => {
             let costoPorPersona = g.monto / g.participantes.length;
             g.participantes.forEach(p => {
                 let yaPago = g.estadosPagos && g.estadosPagos[p];
+                // Si no ha pagado y no es el mismo que pagó originalmente
                 if (!yaPago && p !== g.pagador) {
-                    balances[p] -= costoPorPersona;
-                    balances[g.pagador] += costoPorPersona;
+                    if (!deudasDirectas[p][g.pagador]) {
+                        deudasDirectas[p][g.pagador] = 0;
+                    }
+                    deudasDirectas[p][g.pagador] += costoPorPersona;
                 }
             });
         });
 
-        const deudores = [];
-        const acreedores = [];
+        let transacciones = [];
+        let meDebenTotal = 0;
+        let deboYoTotal = 0;
 
-        for (let a in balances) {
-            if (balances[a] < -0.01) deudores.push({ nombre: a, saldo: -balances[a] });
-            else if (balances[a] > 0.01) acreedores.push({ nombre: a, saldo: balances[a] });
+        for (let deudor in deudasDirectas) {
+            for (let acreedor in deudasDirectas[deudor]) {
+                let monto = deudasDirectas[deudor][acreedor];
+                if (monto > 0.01) {
+                    transacciones.push({ deudor, acreedor, monto });
+
+                    if (esGlobal) {
+                        if (acreedor === usuarioActual) meDebenTotal += monto;
+                        if (deudor === usuarioActual) deboYoTotal += monto;
+                    }
+                }
+            }
         }
-
-        deudores.sort((a, b) => b.saldo - a.saldo);
-        acreedores.sort((a, b) => b.saldo - a.saldo);
 
         const resultadosEl = document.getElementById(elementoId);
         if (!resultadosEl) return;
         resultadosEl.innerHTML = '';
 
-        let transacciones = [];
-        let i = 0, j = 0;
-
-        while (i < deudores.length && j < acreedores.length) {
-            let deudor = deudores[i];
-            let acreedor = acreedores[j];
-            let monto = Math.min(deudor.saldo, acreedor.saldo);
-
-            transacciones.push(`📍 <strong>${deudor.nombre}</strong> le debe pagar <strong>$${monto.toFixed(2)}</strong> a <strong>${acreedor.nombre}</strong>`);
-
-            deudor.saldo -= monto;
-            acreedor.saldo -= monto;
-
-            if (deudor.saldo < 0.01) i++;
-            if (acreedor.saldo < 0.01) j++;
+        if (esGlobal) {
+            document.getElementById('totalMeDeben').innerText = `$${meDebenTotal.toFixed(2)}`;
+            document.getElementById('totalDeboYo').innerText = `$${deboYoTotal.toFixed(2)}`;
         }
 
         if (transacciones.length === 0) {
-            resultadosEl.innerHTML = '<p style="font-size: 0.85rem; color: var(--success); margin-top: 5px;"><strong>¡Todo liquidado en esta fecha! 🎉</strong></p>';
+            let msg = esGlobal ? '<strong>¡Todo está liquidado a nivel general! 🎉</strong>' : '<strong>¡Todo liquidado en esta fecha! 🎉</strong>';
+            resultadosEl.innerHTML = `<p style="font-size: 0.85rem; color: var(--success); ${esGlobal ? 'text-align: center; margin-top: 20px;' : 'margin-top: 5px;'}">${msg}</p>`;
         } else {
             transacciones.forEach(t => {
-                resultadosEl.innerHTML += `<div class="settlement-item" style="font-size: 0.85rem; margin-top: 6px;">${t}</div>`;
+                let estiloItem = esGlobal ? 'settlement-item' : 'settlement-item; font-size: 0.85rem; margin-top: 6px;';
+                resultadosEl.innerHTML += `<div class="${estiloItem}">📍 <strong>${t.deudor}</strong> le debe pagar directamente <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong></div>`;
             });
         }
     }
 
     function calcularBalancesGeneral() {
-        const balances = {};
-        amigos.forEach(a => balances[a] = 0);
-
-        gastos.forEach(g => {
-            let costoPorPersona = g.monto / g.participantes.length;
-            g.participantes.forEach(p => {
-                let yaPago = g.estadosPagos && g.estadosPagos[p];
-                if (!yaPago && p !== g.pagador) {
-                    balances[p] -= costoPorPersona;
-                    balances[g.pagador] += costoPorPersona;
-                }
-            });
-        });
-
-        // Calcular cuánto le deben en total a usuarioActual y cuánto debe en total
-        let meDebenTotal = 0;
-        let deboYoTotal = 0;
-
-        const deudores = [];
-        const acreedores = [];
-
-        for (let a in balances) {
-            if (balances[a] < -0.01) deudores.push({ nombre: a, saldo: -balances[a] });
-            else if (balances[a] > 0.01) acreedores.push({ nombre: a, saldo: balances[a] });
-        }
-
-        deudores.sort((a, b) => b.saldo - a.saldo);
-        acreedores.sort((a, b) => b.saldo - a.saldo);
-
-        // Algoritmo de transacciones óptimas para sacar las rutas de pago
-        let copiaDeudores = JSON.parse(JSON.stringify(deudores));
-        let copiaAcreedores = JSON.parse(JSON.stringify(acreedores));
-        let transacciones = [];
-        let i = 0, j = 0;
-
-        while (i < copiaDeudores.length && j < copiaAcreedores.length) {
-            let deudor = copiaDeudores[i];
-            let acreedor = copiaAcreedores[j];
-            let monto = Math.min(deudor.saldo, acreedor.saldo);
-
-            transacciones.push({ deudor: deudor.nombre, acreedor: acreedor.nombre, monto });
-
-            deudor.saldo -= monto;
-            acreedor.saldo -= monto;
-
-            if (deudor.saldo < 0.01) i++;
-            if (acreedor.saldo < 0.01) j++;
-        }
-
-        // Sumar lo que le deben al usuario actual y lo que él debe
-        transacciones.forEach(t => {
-            if (t.acreedor === usuarioActual) meDebenTotal += t.monto;
-            if (t.deudor === usuarioActual) deboYoTotal += t.monto;
-        });
-
-        // Actualizar tarjetas en pantalla
-        document.getElementById('totalMeDeben').innerText = `$${meDebenTotal.toFixed(2)}`;
-        document.getElementById('totalDeboYo').innerText = `$${deboYoTotal.toFixed(2)}`;
-
-        const resultadosEl = document.getElementById('resultadosBalanceGeneral');
-        if (!resultadosEl) return;
-        resultadosEl.innerHTML = '';
-
-        if (transacciones.length === 0) {
-            resultadosEl.innerHTML = '<p style="font-size: 0.85rem; color: var(--success); text-align: center; margin-top: 20px;"><strong>¡Todo está liquidado a nivel general! 🎉</strong></p>';
-        } else {
-            transacciones.forEach(t => {
-                resultadosEl.innerHTML += `<div class="settlement-item">📍 <strong>${t.deudor}</strong> le debe pagar <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong></div>`;
-            });
-        }
+        calcularBalancesDirectos(gastos, 'resultadosBalanceGeneral', true);
     }
 
     escucharBaseDeDatos();
