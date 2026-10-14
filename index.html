@@ -212,6 +212,10 @@
             margin-bottom: 8px;
             border-left: 4px solid var(--primary);
             font-size: 0.9rem;
+            transition: background 0.2s;
+        }
+        .settlement-item:active {
+            background: #e0e7ff;
         }
 
         .user-selector-bar {
@@ -342,6 +346,7 @@
         <button onclick="abrirSelectorIdentidad()" style="width: auto; padding: 4px 8px; margin: 0; font-size: 0.75rem;">Cambiar</button>
     </div>
 
+    <!-- PESTAÑA 1: GENERAL -->
     <div id="vista-general" class="view-section active">
         <div class="financial-summary-grid">
             <div class="financial-card me-deben">
@@ -360,6 +365,16 @@
         </div>
     </div>
 
+    <!-- PESTAÑA NUEVA: DEUDAS POR PERSONA -->
+    <div id="vista-deudas" class="view-section">
+        <h2>Listado de Deudas Pendientes</h2>
+        <p style="font-size: 0.85rem; color: #6b7280; margin-bottom: 15px;">Aquí puedes ver exactamente qué debe cada persona individualmente y marcarlo como pagado.</p>
+        <div id="listaTodasLasDeudas">
+            <p style="text-align: center; color: gray;">Cargando deudas...</p>
+        </div>
+    </div>
+
+    <!-- PESTAÑA 3: POR DÍA -->
     <div id="vista-dias" class="view-section">
         <h2>Desglose por Día</h2>
         <label style="font-size: 0.85rem; color: #6b7280;">Selecciona el día:</label>
@@ -370,6 +385,7 @@
         </div>
     </div>
 
+    <!-- PESTAÑA 4: AGREGAR GASTO -->
     <div id="vista-agregar" class="view-section">
         <h2>Registrar Gasto</h2>
         <input type="date" id="fechaGasto">
@@ -391,6 +407,9 @@
 <div class="bottom-nav">
     <button class="nav-btn active" onclick="cambiarVista('general', this)">
         <span>🏠</span> General
+    </button>
+    <button class="nav-btn" onclick="cambiarVista('deudas', this)">
+        <span>📋</span> Deudas
     </button>
     <button class="nav-btn" onclick="cambiarVista('dias', this)">
         <span>📅</span> Por Día
@@ -461,6 +480,7 @@
         } else {
             document.getElementById('currentUserName').innerText = usuarioActual;
             calcularBalancesGeneral();
+            renderizarDeudasPorPersona();
         }
     }
 
@@ -491,6 +511,8 @@
             document.getElementById('currentUserName').innerText = usuarioActual;
             document.getElementById('modal-identidad').style.display = 'none';
             calcularBalancesGeneral();
+            renderizarDeudasPorPersona();
+            renderizarVistaDia();
         }
     }
 
@@ -570,7 +592,6 @@
         document.getElementById('editConcepto').value = conceptoActual;
         document.getElementById('editMonto').value = montoActual;
 
-        // Cargar opciones en el selector de pagador dentro del modal
         const selectEditPagador = document.getElementById('editQuienPago');
         selectEditPagador.innerHTML = '';
         amigos.forEach(a => {
@@ -598,9 +619,6 @@
         try {
             const gastoRef = doc(db, COLECCION_GASTOS, gastoId);
             const nota = `Editado por ${usuarioActual}: concepto/monto/pagador actualizados.`;
-
-            // Si cambió el pagador, aseguramos que su propio estado de pago se mantenga en true
-            // y reiniciamos o adaptamos los estados si es necesario
             await updateDoc(gastoRef, {
                 concepto: nuevoConcepto,
                 monto: nuevoMonto,
@@ -669,7 +687,6 @@
                         height = Math.round((height * maxWidth) / width);
                         width = maxWidth;
                     }
-
                     canvas.width = width;
                     canvas.height = height;
 
@@ -723,6 +740,7 @@
             });
             renderizarVistaDia();
             calcularBalancesGeneral();
+            renderizarDeudasPorPersona();
         });
     }
 
@@ -820,23 +838,28 @@
         calcularBalancesDirectos(gastosDelDia, 'vaciadoDiaInterno', false);
     }
 
+    // NUEVO CALCULAR BALANCES: Guarda el detalle individual de gastos para el menú desplegable
     function calcularBalancesDirectos(listaGastos, elementoId, esGlobal = false) {
-        // Estructura para acumular deudas directas: deudasDirectas[deudor][acreedor] = monto
         const deudasDirectas = {};
-        amigos.forEach(a => {
-            deudasDirectas[a] = {};
-        });
+        amigos.forEach(a => { deudasDirectas[a] = {}; });
 
         listaGastos.forEach(g => {
             let costoPorPersona = g.monto / g.participantes.length;
             g.participantes.forEach(p => {
                 let yaPago = g.estadosPagos && g.estadosPagos[p];
-                // Si no ha pagado y no es el mismo que pagó originalmente
                 if (!yaPago && p !== g.pagador) {
                     if (!deudasDirectas[p][g.pagador]) {
-                        deudasDirectas[p][g.pagador] = 0;
+                        deudasDirectas[p][g.pagador] = { total: 0, detalles: [] };
                     }
-                    deudasDirectas[p][g.pagador] += costoPorPersona;
+                    deudasDirectas[p][g.pagador].total += costoPorPersona;
+                    deudasDirectas[p][g.pagador].detalles.push({
+                        id: g.id,
+                        fecha: g.fecha,
+                        concepto: g.concepto,
+                        monto: costoPorPersona,
+                        pagador: g.pagador,
+                        deudor: p
+                    });
                 }
             });
         });
@@ -847,13 +870,12 @@
 
         for (let deudor in deudasDirectas) {
             for (let acreedor in deudasDirectas[deudor]) {
-                let monto = deudasDirectas[deudor][acreedor];
-                if (monto > 0.01) {
-                    transacciones.push({ deudor, acreedor, monto });
-
+                let info = deudasDirectas[deudor][acreedor];
+                if (info && info.total > 0.01) {
+                    transacciones.push({ deudor, acreedor, monto: info.total, detalles: info.detalles });
                     if (esGlobal) {
-                        if (acreedor === usuarioActual) meDebenTotal += monto;
-                        if (deudor === usuarioActual) deboYoTotal += monto;
+                        if (acreedor === usuarioActual) meDebenTotal += info.total;
+                        if (deudor === usuarioActual) deboYoTotal += info.total;
                     }
                 }
             }
@@ -872,10 +894,113 @@
             let msg = esGlobal ? '<strong>¡Todo está liquidado a nivel general! 🎉</strong>' : '<strong>¡Todo liquidado en esta fecha! 🎉</strong>';
             resultadosEl.innerHTML = `<p style="font-size: 0.85rem; color: var(--success); ${esGlobal ? 'text-align: center; margin-top: 20px;' : 'margin-top: 5px;'}">${msg}</p>`;
         } else {
-            transacciones.forEach(t => {
-                let estiloItem = esGlobal ? 'settlement-item' : 'settlement-item; font-size: 0.85rem; margin-top: 6px;';
-                resultadosEl.innerHTML += `<div class="${estiloItem}">📍 <strong>${t.deudor}</strong> le debe pagar directamente <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong></div>`;
+            transacciones.forEach((t, index) => {
+                let estiloItem = esGlobal ? 'settlement-item' : 'settlement-item';
+                
+                // Generamos los items del acordeón interno
+                let detallesHtml = t.detalles.map(d => {
+                    let esSuDeuda = (usuarioActual === d.deudor);
+                    let esElPagador = (usuarioActual === d.pagador);
+                    let tienePermiso = esSuDeuda || esElPagador;
+                    let estiloBoton = tienePermiso ? '' : 'status-locked';
+
+                    return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px; padding-top:8px; border-top:1px dashed #cbd5e1; font-size:0.85rem;">
+                        <div>
+                            <strong>${d.fecha}</strong><br>
+                            ${d.concepto} <span style="color:var(--danger); font-weight:bold;">($${d.monto.toFixed(2)})</span>
+                        </div>
+                        <button onclick="manejarClickPago('${d.id}', '${d.deudor}', '${d.pagador}', false)"
+                            class="status-badge status-pending ${estiloBoton}">
+                            Pagar ⏳
+                        </button>
+                    </div>`;
+                }).join('');
+
+                let idDesglose = `desglose_${elementoId}_${index}`;
+                
+                // Si es la vista global, lo hacemos clickeable para desplegar detalles
+                if(esGlobal) {
+                    resultadosEl.innerHTML += `
+                        <div class="${estiloItem}" style="cursor:pointer; position:relative;" onclick="const el = document.getElementById('${idDesglose}'); el.style.display = el.style.display === 'none' ? 'block' : 'none';">
+                            📍 <strong>${t.deudor}</strong> le debe pagar <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong>
+                            <div style="font-size: 0.75rem; color: var(--primary); text-align: right; margin-top: 2px;">Ver detalles ▼</div>
+                            
+                            <div id="${idDesglose}" style="display:none; margin-top:10px; background:#ffffff; padding:10px; border-radius:8px; border:1px solid var(--border); cursor:default;" onclick="event.stopPropagation()">
+                                <div style="font-weight:bold; font-size:0.85rem; margin-bottom:5px; color:#4b5563;">Detalle de deuda:</div>
+                                ${detallesHtml}
+                            </div>
+                        </div>`;
+                } else {
+                    resultadosEl.innerHTML += `<div class="${estiloItem} font-size: 0.85rem; margin-top: 6px;">📍 <strong>${t.deudor}</strong> le debe pagar directamente <strong>$${t.monto.toFixed(2)}</strong> a <strong>${t.acreedor}</strong></div>`;
+                }
             });
+        }
+    }
+
+    // NUEVA FUNCION: Pestaña donde se enlista persona por persona con sus deudas detalladas
+    window.renderizarDeudasPorPersona = function() {
+        const contenedor = document.getElementById('listaTodasLasDeudas');
+        if(!contenedor) return;
+
+        let html = '';
+        amigos.forEach(deudor => {
+            let deudasDelDeudor = [];
+            gastos.forEach(g => {
+                let costoPorPersona = g.monto / g.participantes.length;
+                // Si este amigo participó en el gasto y él no fue quien pagó
+                if(g.participantes.includes(deudor) && deudor !== g.pagador) {
+                    let yaPago = g.estadosPagos && g.estadosPagos[deudor];
+                    if(!yaPago) {
+                        deudasDelDeudor.push({
+                            id: g.id,
+                            concepto: g.concepto,
+                            fecha: g.fecha,
+                            monto: costoPorPersona,
+                            acreedor: g.pagador,
+                            deudor: deudor
+                        });
+                    }
+                }
+            });
+
+            if(deudasDelDeudor.length > 0) {
+                let totalDeudor = deudasDelDeudor.reduce((acc, curr) => acc + curr.monto, 0);
+                
+                let itemsHtml = deudasDelDeudor.map(d => {
+                    let esSuDeuda = (usuarioActual === d.deudor);
+                    let esElPagador = (usuarioActual === d.acreedor);
+                    let tienePermiso = esSuDeuda || esElPagador;
+                    let estiloBoton = tienePermiso ? '' : 'status-locked';
+
+                    return `
+                    <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px dashed var(--border); padding-top:8px; margin-top:8px; font-size:0.85rem;">
+                        <div>
+                            <span style="font-weight:600; color:#374151;">${d.fecha}</span> - ${d.concepto}<br>
+                            <span style="color:var(--danger); font-weight:bold;">$${d.monto.toFixed(2)}</span> <span style="color:gray; font-size:0.75rem;">a ${d.acreedor}</span>
+                        </div>
+                        <button onclick="manejarClickPago('${d.id}', '${d.deudor}', '${d.acreedor}', false)" class="status-badge status-pending ${estiloBoton}">Pagar ⏳</button>
+                    </div>`;
+                }).join('');
+
+                // Resaltar tarjeta si el usuario actual es quien debe
+                let borderColor = (usuarioActual === deudor) ? 'var(--danger)' : 'var(--primary)';
+                let headerColor = (usuarioActual === deudor) ? 'var(--danger)' : 'var(--text)';
+                
+                html += `
+                <div class="expense-card" style="border-left:4px solid ${borderColor}; margin-bottom:12px; padding:12px;">
+                    <div style="font-weight:bold; font-size:1.05rem; margin-bottom:8px; color:${headerColor};">
+                        👤 ${deudor} debe: $${totalDeudor.toFixed(2)}
+                    </div>
+                    ${itemsHtml}
+                </div>`;
+            }
+        });
+
+        if(html === '') {
+            contenedor.innerHTML = '<p style="text-align:center; color:gray; margin-top:30px;">No hay deudas pendientes en el grupo. 🎉</p>';
+        } else {
+            contenedor.innerHTML = html;
         }
     }
 
